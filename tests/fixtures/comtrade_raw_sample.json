@@ -1,0 +1,26 @@
+[
+  {
+    "period": 2022,
+    "reporterCode": "704",
+    "partnerCode": "490",
+    "cmdCode": "854231",
+    "classificationCode": "H5",
+    "flowDesc": "Import",
+    "flowCode": "M",
+    "primaryValue": 1000000.0,
+    "netWgt": 5000.0,
+    "isReported": true
+  },
+  {
+    "period": 2023,
+    "reporterCode": "704",
+    "partnerCode": "490",
+    "cmdCode": "854231",
+    "classificationCode": "H5",
+    "flowDesc": "Import",
+    "flowCode": "M",
+    "primaryValue": 1200000.0,
+    "netWgt": 5500.0,
+    "isReported": true
+  }
+]
