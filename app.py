@@ -44,6 +44,27 @@ def cached_hs_reference() -> pd.DataFrame:
     return load_hs_reference()
 
 
+def run_query(state_key: str, params: tuple, clicked: bool, compute):
+    """按下按鈕才查詢，結果存進 session_state，之後畫面重新整理（調滑桿、按下載等）
+    只要查詢條件沒變就沿用，不會消失。API 失敗時顯示提示而不是整頁報錯。
+    """
+    if clicked:
+        try:
+            st.session_state[state_key] = (params, compute())
+        except Exception as exc:  # noqa: BLE001 - 網路/429/API錯誤都轉成畫面提示
+            st.session_state.pop(state_key, None)
+            st.error(
+                f"查詢失敗：{exc}\n\n"
+                "若為 429 Too Many Requests，代表 Comtrade 短時間請求過多，"
+                "請等約 1 分鐘再按一次（已查過的資料有快取，不會重複消耗額度）。"
+            )
+            return None
+    saved = st.session_state.get(state_key)
+    if saved and saved[0] == params:
+        return saved[1]
+    return None
+
+
 def country_selectbox(label: str, key: str, default_iso: str | None = None) -> str:
     options = sorted(c for c in ISO3_TO_COMTRADE if c != "WLD")
     index = options.index(default_iso) if default_iso in options else 0
@@ -126,10 +147,17 @@ def render_trend_tab(client, hs_code, exporter_iso, years):
     st.subheader(f"HS {hs_code} 全球出口國 / 進口國趨勢")
     st.caption("出口國排名＝誰在賣這個產品；進口國排名＝誰在買，也是潛在目標市場的候選清單。")
 
-    if st.button("查詢趨勢", key="trend_btn"):
-        with st.spinner("查詢中..."):
-            exporters = world_exporter_ranking(client, hs_code, years, top_n=10)
-            importers = world_importer_ranking(client, hs_code, years, top_n=10)
+    clicked = st.button("查詢趨勢", key="trend_btn")
+    with st.spinner("查詢中..."):
+        result = run_query(
+            "trend_result", (hs_code, tuple(years)), clicked,
+            lambda: (
+                world_exporter_ranking(client, hs_code, years, top_n=10),
+                world_importer_ranking(client, hs_code, years, top_n=10),
+            ),
+        )
+    if result is not None:
+        exporters, importers = result
 
         if exporters.empty and importers.empty:
             st.warning("查無資料，請確認 HS code / 年度是否正確。")
@@ -179,19 +207,24 @@ def render_scorecard_tab(client, hs_code, exporter_iso, years):
     st.subheader(f"HS {hs_code} 主要出口國優劣勢比較")
     top_n = st.slider("比較前幾大出口國", min_value=5, max_value=15, value=8, key="scorecard_topn")
 
-    if st.button("產生優劣勢比較", key="scorecard_btn"):
-        with st.spinner("查詢中（每個國家還要查一次出口目的地分布，會比較久）..."):
-            ranking = world_exporter_ranking(client, hs_code, years, top_n=top_n)
-            if ranking.empty:
-                st.warning("查無資料，請確認 HS code / 年度是否正確。")
-                return
-            latest_period = ranking["period"].max()
-            exporter_isos = ranking[ranking["period"] == latest_period]["reporter_iso"].tolist()
-            if exporter_iso not in exporter_isos:
-                exporter_isos.append(exporter_iso)
+    def compute_scorecard():
+        ranking = world_exporter_ranking(client, hs_code, years, top_n=top_n)
+        if ranking.empty:
+            return None
+        latest_period = ranking["period"].max()
+        exporter_isos = ranking[ranking["period"] == latest_period]["reporter_iso"].tolist()
+        if exporter_iso not in exporter_isos:
+            exporter_isos.append(exporter_iso)
+        return exporter_scorecard(client, hs_code, exporter_isos, years=years)
 
-            scorecard = exporter_scorecard(client, hs_code, exporter_isos, years=years)
-
+    clicked = st.button("產生優劣勢比較", key="scorecard_btn")
+    with st.spinner("查詢中（每個國家還要查一次出口目的地分布，會比較久）..."):
+        scorecard = run_query(
+            "scorecard_result", (hs_code, exporter_iso, tuple(years), top_n), clicked, compute_scorecard
+        )
+    if clicked and scorecard is None and "scorecard_result" in st.session_state:
+        st.warning("查無資料，請確認 HS code / 年度是否正確。")
+    if scorecard is not None:
         if scorecard.empty:
             st.warning("查無資料。")
             return
@@ -258,12 +291,16 @@ def render_target_market_tab(client, hs_code, exporter_iso, years):
     st.subheader(f"HS {hs_code} 建議出口目標國")
     n_candidates = st.slider("從全球前幾大進口市場中評估", min_value=5, max_value=15, value=8, key="target_n")
 
-    if st.button("產生目標國建議", key="target_btn"):
-        with st.spinner("查詢並評分中（候選市場越多、耗時越久）..."):
-            result, disclaimer = recommend_target_markets(
+    clicked = st.button("產生目標國建議", key="target_btn")
+    with st.spinner("查詢並評分中（候選市場越多、耗時越久）..."):
+        outcome = run_query(
+            "target_result", (hs_code, exporter_iso, tuple(years), n_candidates), clicked,
+            lambda: recommend_target_markets(
                 client, hs_code, exporter_iso=exporter_iso, years=years, n_candidates=n_candidates
-            )
-
+            ),
+        )
+    if outcome is not None:
+        result, disclaimer = outcome
         if result.empty:
             st.warning("查無資料，請確認 HS code / 年度是否正確。")
             return
@@ -297,12 +334,16 @@ def render_hs_suggestion_tab(client, exporter_iso, years):
     )
     target_country = country_selectbox("目標國", "hs_target", "VNM")
 
-    if st.button("產生建議", key="hs_btn") and product_desc.strip():
-        with st.spinner("比對候選 HS code 並查詢市場資料中（可能需要一段時間）..."):
-            scored, disclaimer = suggest_hs_codes(
+    clicked = st.button("產生建議", key="hs_btn") and bool(product_desc.strip())
+    with st.spinner("比對候選 HS code 並查詢市場資料中（可能需要一段時間）..."):
+        outcome = run_query(
+            "hs_result", (product_desc.strip(), target_country, exporter_iso, tuple(years)), clicked,
+            lambda: suggest_hs_codes(
                 client, product_desc, target_country, reporter_iso=exporter_iso, years=years
-            )
-
+            ),
+        )
+    if outcome is not None:
+        scored, disclaimer = outcome
         if scored.empty:
             st.warning("查無合適候選碼，請嘗試更具體的英文關鍵字。")
             return
