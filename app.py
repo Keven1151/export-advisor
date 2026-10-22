@@ -150,10 +150,10 @@ def render_trend_tab(client, hs_code, exporter_iso, years):
     clicked = st.button("查詢趨勢", key="trend_btn")
     with st.spinner("查詢中..."):
         result = run_query(
-            "trend_result", (hs_code, tuple(years)), clicked,
+            "trend_result", (hs_code, tuple(years), exporter_iso), clicked,
             lambda: (
-                world_exporter_ranking(client, hs_code, years, top_n=10),
-                world_importer_ranking(client, hs_code, years, top_n=10),
+                world_exporter_ranking(client, hs_code, years, top_n=10, always_include=exporter_iso),
+                world_importer_ranking(client, hs_code, years, top_n=10, always_include=exporter_iso),
             ),
         )
     if result is not None:
@@ -171,7 +171,10 @@ def render_trend_tab(client, hs_code, exporter_iso, years):
             else:
                 fig = px.line(
                     exporters, x="period", y="trade_value_usd", color="reporter_iso", markers=True,
-                    title="出口值 (USD)",
+                    title="出口值 (USD)", color_discrete_map={exporter_iso: "#FF4136"},
+                )
+                fig.for_each_trace(
+                    lambda t: t.update(line=dict(width=4)) if t.name == exporter_iso else None
                 )
                 st.plotly_chart(fig, use_container_width=True)
                 latest = exporters[exporters["period"] == exporters["period"].max()]
@@ -188,7 +191,10 @@ def render_trend_tab(client, hs_code, exporter_iso, years):
             else:
                 fig2 = px.line(
                     importers, x="period", y="trade_value_usd", color="reporter_iso", markers=True,
-                    title="進口值 (USD)",
+                    title="進口值 (USD)", color_discrete_map={exporter_iso: "#FF4136"},
+                )
+                fig2.for_each_trace(
+                    lambda t: t.update(line=dict(width=4)) if t.name == exporter_iso else None
                 )
                 st.plotly_chart(fig2, use_container_width=True)
                 latest2 = importers[importers["period"] == importers["period"].max()]
@@ -198,9 +204,15 @@ def render_trend_tab(client, hs_code, exporter_iso, years):
                     use_container_width=True,
                 )
 
+        # 不管台灣排不排得進前10大，只要查得到資料都會強制顯示在圖表裡（紅色粗線標示），
+        # 這裡只處理「連資料都查不到」的情況
         exporter_in_list = exporter_iso in set(exporters.get("reporter_iso", []))
         if not exporter_in_list:
-            st.caption(f"（{exporter_iso} 不在前10大出口國之列，該國排名未顯示於上表）")
+            st.caption(
+                f"（{exporter_iso} 在 Comtrade 上完全查無這個HS code的出口資料，"
+                "可能是真的沒有出口、或這項產品在Comtrade分類下沒有被記錄到，"
+                "建議用財政部關務署數字或業界實務經驗交叉確認）"
+            )
 
 
 def render_scorecard_tab(client, hs_code, exporter_iso, years):

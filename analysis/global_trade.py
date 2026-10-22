@@ -46,11 +46,23 @@ def _full_country_series(
 
 
 def _country_ranking(
-    client: ComtradeClient, hs_code: str, years: list[int], flow: str, top_n: int
+    client: ComtradeClient,
+    hs_code: str,
+    years: list[int],
+    flow: str,
+    top_n: int,
+    always_include: str | None = None,
 ) -> pd.DataFrame:
     """`_full_country_series` 的結果，取「最新年度」前N大，並保留這些國家完整的歷年序列
     （即使某國在較早年度不在前N大，只要現在是前N大就會有完整趨勢線）。只給圖表用，
     需要查特定國家（不管排名）請直接用 `_full_country_series`。
+
+    Args:
+        always_include: 不管排名多少都要強制納入結果的國家（例如台灣）。這個工具主要是
+            給台灣企業用的，但台灣在 Comtrade 常常擠不進全球前N大（見CLAUDE.md台灣資料
+            估計值的說明），如果不強制納入，使用者會完全看不到自己國家的資料，誤以為
+            「台灣沒有這個產品的出口資料」。只在該國真的有查到任何資料時才會加入，
+            完全查無資料（含鏡射估計）不會硬塞一個空的進去。
     """
     full = _full_country_series(client, hs_code, years, flow)
     if full.empty:
@@ -60,24 +72,40 @@ def _country_ranking(
     top_countries = (
         full[full["period"] == latest_period].sort_values("rank").head(top_n)["reporter_iso"].tolist()
     )
+    if always_include and always_include not in top_countries:
+        if always_include in full["reporter_iso"].unique():
+            top_countries.append(always_include)
+
     result = full[full["reporter_iso"].isin(top_countries)].sort_values(["period", "rank"])
     return result.reset_index(drop=True)
 
 
 def world_exporter_ranking(
-    client: ComtradeClient, hs_code: str, years: list[int] | None = None, top_n: int = 15
+    client: ComtradeClient,
+    hs_code: str,
+    years: list[int] | None = None,
+    top_n: int = 15,
+    always_include: str | None = None,
 ) -> pd.DataFrame:
-    """這個HS code全球最大的出口國排名（目前主要玩家是誰），只回傳前N大方便畫圖。"""
+    """這個HS code全球最大的出口國排名（目前主要玩家是誰），回傳前N大 + always_include
+    指定的國家（通常是使用者自己的出口國，即使排不進前N大也要讓它看得到自己的資料）。
+    """
     years = years or default_years()
-    return _country_ranking(client, hs_code, years, flow="X", top_n=top_n)
+    return _country_ranking(client, hs_code, years, flow="X", top_n=top_n, always_include=always_include)
 
 
 def world_importer_ranking(
-    client: ComtradeClient, hs_code: str, years: list[int] | None = None, top_n: int = 15
+    client: ComtradeClient,
+    hs_code: str,
+    years: list[int] | None = None,
+    top_n: int = 15,
+    always_include: str | None = None,
 ) -> pd.DataFrame:
-    """這個HS code全球最大的進口市場排名（潛在目標國候選清單的來源），只回傳前N大方便畫圖。"""
+    """這個HS code全球最大的進口市場排名（潛在目標國候選清單的來源），回傳前N大 +
+    always_include 指定的國家。
+    """
     years = years or default_years()
-    return _country_ranking(client, hs_code, years, flow="M", top_n=top_n)
+    return _country_ranking(client, hs_code, years, flow="M", top_n=top_n, always_include=always_include)
 
 
 def exporter_scorecard(

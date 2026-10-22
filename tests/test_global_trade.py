@@ -37,6 +37,40 @@ def test_world_exporter_ranking_keeps_full_history_for_current_top_n(fake_client
     assert twn_periods == {2022, 2023}
 
 
+def test_world_exporter_ranking_always_includes_specified_country(fake_client_factory):
+    # TWN排在很後面(第4名)，top_n=2的話本來會被篩掉
+    world_df = pd.DataFrame(
+        {
+            "period": [2023, 2023, 2023, 2023],
+            "reporter_iso": ["USA", "CHN", "DEU", "TWN"],
+            "trade_value_usd": [500.0, 400.0, 300.0, 10.0],
+            "net_weight_kg": [50.0, 40.0, 30.0, 1.0],
+        }
+    )
+    client = fake_client_factory({(None, "WLD", "X"): world_df})
+
+    ranking = world_exporter_ranking(client, "854231", years=[2023], top_n=2, always_include="TWN")
+
+    assert set(ranking["reporter_iso"]) == {"USA", "CHN", "TWN"}
+
+
+def test_world_exporter_ranking_skips_always_include_when_country_has_no_data(fake_client_factory):
+    world_df = pd.DataFrame(
+        {
+            "period": [2023, 2023],
+            "reporter_iso": ["USA", "CHN"],
+            "trade_value_usd": [500.0, 400.0],
+            "net_weight_kg": [50.0, 40.0],
+        }
+    )
+    client = fake_client_factory({(None, "WLD", "X"): world_df})
+
+    ranking = world_exporter_ranking(client, "854231", years=[2023], top_n=2, always_include="TWN")
+
+    # 台灣完全查無資料(連鏡射估計都沒有)，不應該硬塞一列進去
+    assert "TWN" not in set(ranking["reporter_iso"])
+
+
 def test_world_importer_ranking_uses_import_flow(fake_client_factory):
     import_df = pd.DataFrame(
         {

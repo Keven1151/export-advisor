@@ -37,6 +37,14 @@ UN Comtrade 使用數字國碼（對應 UN M49 標準），**不是 ISO3**。台
 3. `data/comtrade_client.py` 的 `_normalize()` 已經把原始 API 的 `isReported` 欄位保留成
    `is_reported` 欄位，未來如果要做「資料可信度」篩選或標註，直接用這欄位，不用再去猜
 
+**實務後果（2026-10-22 使用者回報）**：因為台灣常常擠不進全球前N大排名，`analysis/global_trade.py`
+裡任何「只回傳前N大」的函式（`world_exporter_ranking`、`world_importer_ranking`、舊版
+`exporter_scorecard`）都曾經發生「台灣這個工具主要是給台灣企業用，但查詢結果卻完全看不到
+台灣」的問題。修法是幫這些函式加一個 `always_include` 參數（`_country_ranking` 內部實作），
+不管排名多少、只要查得到任何資料（含鏡射估計）就強制把該國加進結果，`app.py` 呼叫時一律傳
+`always_include=exporter_iso`。**之後任何新的「列出前N大XX」類功能，都要照這個模式處理**，
+不要只回傳單純截斷的前N名，不然同樣的問題會再發生一次。
+
 ### 用財政部關務署數字做粗略交叉比對（`data/mof_customs_client.py`）
 
 為了讓使用者能大概判斷「Comtrade對台灣的估計值準不準」，加了一個獨立的資料源查財政部
