@@ -83,8 +83,10 @@ MVP 先完成 UN Comtrade 串接，其餘來源列為 v2 待辦（見 §7）。
 
 - 整合 WITS 關稅資料到 HS code 評分邏輯
 - ~~整合財政部關務署資料做台灣出口數字交叉驗證~~ 2026-09-11 已完成粗略版本
-  （`data/mof_customs_client.py`，只到HS Section層級+5個官方分組，見 CLAUDE.md 說明；
-  精確到HS6碼×任意國家目前沒有免費穩定API，暫不會做）
+  （`data/mof_customs_client.py`，只到HS Section層級+5個官方分組，見 CLAUDE.md 說明）
+- ~~找更準確的台灣官方貿易數字來源~~ 2026-10-22 已完成：WTO Timeseries API
+  （`data/wto_client.py`），台灣是WTO正式會員，這是真實申報數字不是估計值，
+  但只有全球總額、沒有國別拆分，精確到HS6碼×任意國家目前還是沒有免費穩定API
 - FTA / 經貿協議關稅優惠納入評分
 - 多語系介面（英文版供海外業務使用）
 
@@ -109,7 +111,9 @@ MVP 先完成 UN Comtrade 串接，其餘來源列為 v2 待辦（見 §7）。
 │   ├── comtrade_client.py     # UN Comtrade API 串接 + 快取
 │   ├── country_codes.py       # ISO3 <-> Comtrade數字碼對照
 │   ├── mof_customs_client.py  # 財政部關務署官方數字（粗略交叉比對用，見CLAUDE.md限制）
-│   └── hs_sections.py         # HS章別(2碼) -> HS Section(19類)對照，關務署資料查詢用
+│   ├── hs_sections.py         # HS章別(2碼) -> HS Section(19類)對照，關務署資料查詢用
+│   ├── wto_client.py          # WTO官方申報貿易總額（台灣真實數字，但無國別拆分）
+│   └── wto_product_groups.py  # HS碼 -> WTO品項分類(SITC3彙總)對照
 ├── analysis/
 │   ├── trend_analysis.py     # 雙邊(某出口國->某目標國)趨勢、市占率、CAGR等共用工具函式
 │   ├── competitor_analysis.py# 給定目標國，看該國進口來源國排名(F4用)

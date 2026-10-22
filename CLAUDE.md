@@ -67,9 +67,33 @@ UN Comtrade 使用數字國碼（對應 UN M49 標準），**不是 ISO3**。台
 所以目前就是把這個「粗略交叉比對」當作輔助參考，顯示在畫面上（`app.py` 的
 `render_mof_reference`，只有選台灣當出口國時才會顯示），不是精確數字。
 
+### 用 WTO 數字做更準確的「總額」交叉比對（`data/wto_client.py`，2026-10-22加入）
+
+台灣雖然不是聯合國會員，但**是WTO正式會員**（會籍名稱 "Chinese Taipei"，reporter
+code 158），WTO規定會員國要自行提交貿易統計給WTO的Integrated Database，所以這裡
+查到的是**台灣官方真實申報數字，不是鏡射估計值**。實測2022年「Total merchandise」
+出口 = 4,778億美元，跟已知的台灣真實出口數字幾乎完全吻合，比Comtrade準確很多。
+
+**限制**：這個API的貿易「金額」指標只有**全球總額**，沒有國別拆分（查不到「出口到
+越南多少」），能拆國別的只有「關稅稅率」指標（不是貿易金額），已實測確認過
+（`p=704`查越南夥伴回傳空陣列）。品項分類用WTO自己的「SITC3 (aggregates)」約18類，
+不是HS碼，兩者對照表在 `data/wto_product_groups.py`，**只有HS84/85(機械/電子)
+做了HS4碼層級的細分對應（台灣出口大宗），其他類別只到HS2碼章別、或完全沒把握時
+落到"MA"(製成品)這個大分類**，用的時候要看 `hs_code_to_wto_product()` 回傳的
+confidence欄位（heading/chapter/rough），不要當作精確分類。
+
+**用法分工**：WTO數字拿來驗證「台灣這個產品的全球總出口值對不對」最準；要看「出口到
+特定國家多少」還是得靠 Comtrade（連帶其鏡射估計限制）或財政部關務署的5個官方分組
+（`render_mof_reference`）。三個資料源在 `app.py` 的「出口國優劣勢分析」分頁一起顯示。
+
+免費key申請：https://apiportal.wto.org/ 註冊 → Products > Standard 訂閱（免費，
+10 calls/sec，每小時上限10000次）→ 設定 `WTO_API_KEY` 環境變數。沒設定這個key時
+`render_wto_reference` 只會顯示一行提示文字，不影響其他功能。
+
 ## API / 環境變數
 
 - `COMTRADE_API_KEY`：UN Comtrade subscription key，存在 `.env`（已加入 .gitignore），程式從環境變數讀取，絕不寫死在程式碼
+- `WTO_API_KEY`：WTO Timeseries API subscription key，一樣存在 `.env`，見上面「用WTO數字」那段。沒設定時 `WTOClient.is_configured` 是 `False`，`get_chinese_taipei_trade()` 直接回傳空表，不拋例外
 - Comtrade 免費層級速率限制：約 10 calls/min、500 calls/day → `data/comtrade_client.py` 必須做本地 parquet 快取，同一組 (hs_code, reporter, partner, period) 不重複呼叫
 - `get_trade_data` 的 `reporter_iso` 和 `partner_iso` 都可以傳 `None`：
   - `reporter_iso=None` = 依所有申報國分列（用於「全球出口/進口國排名」，見 `analysis/global_trade.py`）

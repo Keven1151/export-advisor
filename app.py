@@ -13,6 +13,8 @@ from data.comtrade_client import ComtradeClient
 from data.country_codes import ISO3_TO_COMTRADE, TAIWAN_ISO3
 from data.hs_sections import hs_code_to_section
 from data.mof_customs_client import get_reference_trade_all_groups
+from data.wto_client import WTOClient
+from data.wto_product_groups import hs_code_to_wto_product
 from analysis.trend_analysis import default_years
 from analysis.global_trade import world_exporter_ranking, world_importer_ranking, exporter_scorecard
 from analysis.competitor_analysis import competitor_ranking, price_comparison
@@ -37,6 +39,11 @@ TAIWAN_CODE_NOTE = (
 @st.cache_resource
 def get_client() -> ComtradeClient:
     return ComtradeClient()
+
+
+@st.cache_resource
+def get_wto_client() -> WTOClient:
+    return WTOClient()
 
 
 @st.cache_data(ttl=86400)
@@ -271,7 +278,65 @@ def render_scorecard_tab(client, hs_code, exporter_iso, years):
         st.plotly_chart(fig, use_container_width=True)
 
         if exporter_iso == TAIWAN_ISO3:
+            render_wto_reference(hs_code, years)
             render_mof_reference(hs_code, years)
+
+
+def render_wto_reference(hs_code: str, years: list[int]) -> None:
+    """台灣（Chinese Taipei）在WTO自行申報的真實貿易總額，比Comtrade的鏡射估計值準，
+    但只有全球總額、沒有國別拆分，見 data/wto_client.py 的說明。
+    """
+    client = get_wto_client()
+    if not client.is_configured:
+        st.caption(
+            "ℹ️ 想看台灣在WTO官方申報的真實貿易總額（比Comtrade估計值準），"
+            "可以到 https://apiportal.wto.org/ 免費申請key，設定 WTO_API_KEY "
+            "環境變數後這裡會自動顯示，見 .env.example。"
+        )
+        return
+
+    product_code, product_name, confidence = hs_code_to_wto_product(hs_code)
+    confidence_note = {
+        "heading": "HS4碼精確對應",
+        "chapter": "HS2碼章別概略對應",
+        "rough": "沒有更細的對應，只能看「製成品」這個大分類的總額，精確度非常有限",
+    }[confidence]
+
+    with st.expander(f"🏆 台灣WTO官方申報貿易總額（{product_name}，{confidence_note}）", expanded=True):
+        st.caption(
+            "台灣是WTO正式會員（會籍名稱Chinese Taipei），這裡是台灣自己申報給WTO的"
+            "真實貿易總額，不是Comtrade那種用夥伴國推算的鏡射估計值，可信度較高。"
+            "**但只有全球總額，沒有拆到個別國家**，回答不了「出口到某個特定國家多少」"
+            "這類問題，那個還是得靠下面的Comtrade/關務署資料。"
+        )
+        export_df = client.get_chinese_taipei_trade("X", years)
+        import_df = client.get_chinese_taipei_trade("M", years)
+        if export_df.empty and import_df.empty:
+            st.caption("查無資料。")
+            return
+
+        frames = []
+        for flow_label, df in [("出口 Export", export_df), ("進口 Import", import_df)]:
+            if df.empty:
+                continue
+            subset = df[df["product_code"].isin(["TO", product_code])].copy()
+            subset["flow"] = flow_label
+            frames.append(subset)
+        combined = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+        if combined.empty:
+            st.caption("查無資料。")
+            return
+
+        combined["series"] = combined["flow"] + " - " + combined["product_name"]
+        fig = px.line(
+            combined, x="period", y="trade_value_usd", color="series", markers=True,
+            title="台灣官方申報貿易額 (USD)",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        st.dataframe(
+            combined[["period", "flow", "product_code", "product_name", "trade_value_usd"]],
+            use_container_width=True,
+        )
 
 
 def render_mof_reference(hs_code: str, years: list[int]) -> None:
